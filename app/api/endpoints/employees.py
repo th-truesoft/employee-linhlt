@@ -1,13 +1,29 @@
 from typing import Any, Dict, List, Optional
-from fastapi import APIRouter, Depends, Query, Body, HTTPException, Path
+from fastapi import APIRouter, Depends, Query, Body, HTTPException, Path, Security
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 
 from app.core import deps
 from app.core.containers import container
+from app.core.config import settings
 from app.services.employee import EmployeeService
 from app.schemas.employee import EmployeeSearchFilters
 
+security = HTTPBearer()
 router = APIRouter()
+
+
+def verify_token(
+    credentials: HTTPAuthorizationCredentials = Security(security),
+) -> bool:
+    """Verify the Bearer token content"""
+    if credentials.credentials != settings.DEFAULT_API_TOKEN:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return True
 
 
 def get_employee_service() -> EmployeeService:
@@ -15,7 +31,9 @@ def get_employee_service() -> EmployeeService:
     return container.employee_service()
 
 
-@router.post("/search", response_model=Dict[str, Any])
+@router.post(
+    "/search", response_model=Dict[str, Any], dependencies=[Depends(verify_token)]
+)
 def search_employees(
     *,
     db: Session = Depends(deps.get_db),
@@ -23,7 +41,6 @@ def search_employees(
     organization_id: str = Query(
         "default", description="Organization ID for column configuration"
     ),
-    _: bool = Depends(deps.validate_token),
     employee_service: EmployeeService = Depends(get_employee_service),
 ) -> Any:
     from app.core.organization_config import get_organization_columns
