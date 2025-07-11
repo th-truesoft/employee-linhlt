@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: employee-directory-api
+    container_name: employee-directory-api
+    restart: unless-stopped
+    ports:
+      - "8008:8000"
+    environment:
+      - PROJECT_NAME=Employee Directory API
+      - BACKEND_CORS_ORIGINS=["http://localhost:8000", "http://localhost:3000"]
+      - SECRET_KEY=changethisinsecretkey
+      - DEFAULT_API_TOKEN=employee-directory-api-token
+      - SQLITE_DB=/app/data/employee_directory.db
+      - RATE_LIMIT=100
+      - RATE_LIMIT_WINDOW_SIZE=60
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
