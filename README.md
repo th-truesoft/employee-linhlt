@@ -17,8 +17,8 @@ API sẽ chạy tại http://localhost:8000
 #### 1. Tạo môi trường ảo
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate  # Trên Windows: .venv\Scripts\activate
+python -m venv venv
+source venv/bin/activate  # Trên Windows: venv\Scripts\activate
 ```
 
 #### 2. Cài đặt thư viện
@@ -27,9 +27,9 @@ source .venv/bin/activate  # Trên Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-#### 3. Tạo file môi trường
+#### 3. Tạo file môi trường (Tùy chọn)
 
-Copy file `.env.example` thành `.env`:
+Copy file `.env.example` thành `.env` nếu muốn custom config:
 
 ```bash
 cp .env.example .env
@@ -49,9 +49,19 @@ python -m app.db.init_script
 
 #### 6. Start app
 
+**Cách 1: Sử dụng script run.py (Khuyến nghị)**
+
 ```bash
-uvicorn app.main:app --reload
+python run.py
 ```
+
+**Cách 2: Sử dụng uvicorn trực tiếp**
+
+```bash
+python -m uvicorn app.main:app --reload
+```
+
+> **Lưu ý:** Dùng `python -m uvicorn` thay vì `uvicorn` để đảm bảo chạy từ virtual environment đúng cách.
 
 #### 7. Kiểm tra API
 
@@ -66,6 +76,7 @@ python run_tests.py
 ```
 
 ## Api docs
+
 - Swagger UI: http://localhost:8000/docs
 - ReDoc: http://localhost:8000/redoc
 
@@ -86,6 +97,7 @@ Token mặc định được cấu hình trong file `.env` dưới dạng `DEFAU
 ```
 POST /api/v1/employees/search
 ```
+
 **Request Body:**
 
 ```json
@@ -124,6 +136,31 @@ POST /api/v1/employees/search
   "columns": ["name", "email", "department", "position"]
 }
 ```
+
+## Troubleshooting
+
+### Lỗi "ModuleNotFoundError: No module named 'sqlalchemy'"
+
+Nếu gặp lỗi này khi chạy `uvicorn app.main:app --reload`, hãy:
+
+1. Đảm bảo virtual environment đã được activate:
+
+   ```bash
+   source venv/bin/activate  # Linux/Mac
+   venv\Scripts\activate     # Windows
+   ```
+
+2. Sử dụng `python -m uvicorn` thay vì `uvicorn`:
+
+   ```bash
+   python -m uvicorn app.main:app --reload
+   ```
+
+3. Hoặc sử dụng script run.py:
+   ```bash
+   python run.py
+   ```
+
 ## Cấu hình column theo tổ chức
 
 API hỗ trợ cấu hình column động cho từng tổ chức. Điều này được quản lý thông qua module `organization_config.py`, có thể được mở rộng để sử dụng cơ sở dữ liệu hoặc dịch vụ cấu hình bên ngoài trong môi trường sản xuất.
@@ -133,7 +170,15 @@ Ví dụ cấu hình:
 ```json
 {
   "default": {
-    "columns": ["name", "email", "phone", "status", "department", "position", "location"]
+    "columns": [
+      "name",
+      "email",
+      "phone",
+      "status",
+      "department",
+      "position",
+      "location"
+    ]
   },
   "org1": {
     "columns": ["name", "email", "department", "position"]
@@ -156,7 +201,7 @@ Rate limit được cấu hình thông qua các biến môi trường:
 ### Chạy test với pytest
 
 ```bash
-pytest
+PYTHONPATH=. pytest --disable-warnings -v
 ```
 
 ### Chạy test với coverage
