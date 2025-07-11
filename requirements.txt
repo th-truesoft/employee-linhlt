@@ -2,7 +2,7 @@ fastapi==0.104.1
 uvicorn==0.24.0
 pydantic>=2.8.0
 pydantic-settings==2.0.3
-sqlalchemy==2.0.23
+sqlalchemy==2.0.41
 python-dotenv==1.0.0
 dependency-injector==4.48.1
 pytest==7.4.3
