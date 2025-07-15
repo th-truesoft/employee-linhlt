@@ -1,6 +1,22 @@
 version: "3.8"
 
 services:
+  redis:
+    image: redis:7-alpine
+    container_name: employee-directory-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
   api:
     build:
       context: .
@@ -10,6 +26,9 @@ services:
     restart: unless-stopped
     ports:
       - "8000:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
     environment:
       - PROJECT_NAME=Employee Directory API
       - BACKEND_CORS_ORIGINS=["http://localhost:8000", "http://localhost:3000"]
@@ -18,9 +37,14 @@ services:
       - SQLITE_DB=/app/data/employee_directory.db
       - RATE_LIMIT=100
       - RATE_LIMIT_WINDOW_SIZE=60
+      - REDIS_URL=redis://redis:6379/0
+      - REDIS_RATE_LIMITING=true
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 10s
+
+volumes:
+  redis_data:

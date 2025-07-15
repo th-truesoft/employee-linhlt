@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Script để chạy các test và tạo báo cáo coverage
+Test runner script with coverage reporting
 """
 import os
 import subprocess
@@ -9,23 +9,25 @@ import pathlib
 
 
 def run_tests():
-    """Chạy các test và tạo báo cáo coverage"""
-    print("Đang chạy tests với pytest và coverage...")
-    
-    # Tạo thư mục cho báo cáo coverage nếu chưa tồn tại
+    """Run tests and generate coverage reports"""
+    print("Running tests with pytest and coverage...")
+
+    # Create coverage reports directory if it doesn't exist
     if not os.path.exists("coverage_reports"):
         os.makedirs("coverage_reports")
-    
-    # Thiết lập PYTHONPATH để có thể import module app
+
+    # Set up PYTHONPATH for app module imports
     current_dir = pathlib.Path(__file__).parent.absolute()
     env = os.environ.copy()
     env["PYTHONPATH"] = str(current_dir)
-    
-    # Chạy pytest trực tiếp với môi trường đã thiết lập
-    # Sử dụng các tham số đơn giản để tránh xung đột với pytest.ini
+
+    # Run pytest with configured environment
+    # Use simple parameters to avoid conflicts with pytest.ini
     result = subprocess.run(
         [
-            "python", "-m", "pytest", 
+            "python",
+            "-m",
+            "pytest",
             "tests/",
             "--cov=app",
             "--cov-report=term",
@@ -34,16 +36,16 @@ def run_tests():
         ],
         capture_output=True,
         text=True,
-        env=env
+        env=env,
     )
-    
-    # In kết quả
+
+    # Print results
     print(result.stdout)
     if result.stderr:
-        print("Lỗi:", file=sys.stderr)
+        print("Error:", file=sys.stderr)
         print(result.stderr, file=sys.stderr)
-    
-    # Trả về mã thoát của pytest
+
+    # Return pytest exit code
     return result.returncode
 
 

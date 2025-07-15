@@ -10,7 +10,7 @@ RUN apt-get update && \
         sqlite3 \
         && rm -rf /var/lib/apt/lists/*
 
-# Tạo virtual environment để isolation tốt hơn
+# Create virtual environment for better isolation
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
@@ -33,7 +33,7 @@ RUN apt-get update && \
 # Copy virtual environment từ build stage
 COPY --from=builder /opt/venv /opt/venv
 
-# Tạo user không có quyền root
+# Create non-root user
 RUN adduser --disabled-password --gecos "" appuser
 
 # Set working directory
@@ -42,7 +42,7 @@ WORKDIR /app
 # Copy application code
 COPY --chown=appuser:appuser . .
 
-# Tạo data directory cho SQLite
+# Create data directory for SQLite
 RUN mkdir -p /app/data && \
     chown -R appuser:appuser /app
 
@@ -61,9 +61,9 @@ RUN python create_tables.py && \
 # Expose port
 EXPOSE 8000
 
-# Health check
+# Health check using standard library urllib (no external dependencies)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import requests; requests.get('http://localhost:8000/')" || exit 1
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/')" || exit 1
 
 # Start command
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

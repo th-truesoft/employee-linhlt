@@ -3,7 +3,7 @@
 Test script for Employee Directory API - Search Endpoint
 """
 import os
-import requests
+import httpx
 from typing import Dict, Any, Optional
 
 # Configuration
@@ -35,16 +35,17 @@ def make_api_request(
     headers = get_auth_headers(token)
 
     try:
-        if method.upper() == "GET":
-            response = requests.get(url, headers=headers)
-        elif method.upper() == "POST":
-            response = requests.post(url, headers=headers, json=data)
-        else:
-            print(f"Unsupported method: {method}")
-            return None
+        with httpx.Client() as client:
+            if method.upper() == "GET":
+                response = client.get(url, headers=headers)
+            elif method.upper() == "POST":
+                response = client.post(url, headers=headers, json=data)
+            else:
+                print(f"Unsupported method: {method}")
+                return None
 
-        response.raise_for_status()
-        return response.json()
+            response.raise_for_status()
+            return response.json()
     except Exception as e:
         print(f"Error during API request: {e}")
         return None
