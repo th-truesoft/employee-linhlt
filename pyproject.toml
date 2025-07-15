@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "employee-directory-api"
 version = "0.1.0"
-description = "API danh bạ nhân viên được xây dựng tại Việt Nam"
+description = "Employee Directory API built in Vietnam"
 authors = ["VietNam Developer <dev@vietnam.com>"]
 readme = "README.md"
 

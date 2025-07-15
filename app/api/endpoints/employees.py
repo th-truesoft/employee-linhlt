@@ -7,7 +7,12 @@ from app.core import deps
 from app.core.containers import container
 from app.core.config import settings
 from app.services.employee import EmployeeService
-from app.schemas.employee import EmployeeSearchFilters
+from app.services.advanced_search import AdvancedSearchService
+from app.schemas.employee import (
+    EmployeeSearchFilters,
+    EmployeeAdvancedSearchResponse,
+    SearchSuggestionsResponse,
+)
 
 security = HTTPBearer()
 router = APIRouter()
@@ -15,20 +20,19 @@ router = APIRouter()
 
 def verify_token(
     credentials: HTTPAuthorizationCredentials = Security(security),
-) -> bool:
-    """Verify the Bearer token content"""
-    if credentials.credentials != settings.DEFAULT_API_TOKEN:
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    return True
+) -> Dict[str, Any]:
+    """Verify the Bearer token and return token payload"""
+    return deps.validate_token(authorization=f"Bearer {credentials.credentials}")
 
 
 def get_employee_service() -> EmployeeService:
     """Get employee service from container."""
     return container.employee_service()
+
+
+def get_advanced_search_service() -> AdvancedSearchService:
+    """Get advanced search service"""
+    return AdvancedSearchService()
 
 
 @router.post(
@@ -38,12 +42,13 @@ def search_employees(
     *,
     db: Session = Depends(deps.get_db),
     filters: EmployeeSearchFilters,
-    organization_id: str = Query(
-        "default", description="Organization ID for column configuration"
-    ),
+    token_data: Dict[str, Any] = Depends(verify_token),
     employee_service: EmployeeService = Depends(get_employee_service),
 ) -> Any:
     from app.core.organization_config import get_organization_columns
+
+    # Extract organization_id from JWT token
+    organization_id = token_data.get("organization_id", "default")
 
     org_columns = get_organization_columns(organization_id)
 
@@ -71,9 +76,13 @@ def search_employees(
             detail=f"Invalid columns: {', '.join(invalid_columns)}",
         )
 
-    # Search employees using injected service
-    employees = employee_service.search(db=db, filters=filters)
-    total_count = employee_service.count(db=db, filters=filters)
+    # Search employees using multi-tenant service methods
+    employees = employee_service.search_by_org(
+        db=db, filters=filters, organization_id=organization_id
+    )
+    total_count = employee_service.count_by_org(
+        db=db, filters=filters, organization_id=organization_id
+    )
 
     # Format the response with only the requested columns
     result = []
@@ -99,27 +108,139 @@ def search_employees(
         # Add related fields
         if "department" in columns and emp.department:
             employee_dict["department"] = emp.department.name
-        elif "department" in columns:
-            employee_dict["department"] = None
-
         if "position" in columns and emp.position:
             employee_dict["position"] = emp.position.name
-        elif "position" in columns:
-            employee_dict["position"] = None
-
         if "location" in columns and emp.location:
             employee_dict["location"] = emp.location.name
-        elif "location" in columns:
-            employee_dict["location"] = None
 
         result.append(employee_dict)
 
-    # Return paginated results with metadata
+    # Calculate pagination info
+    total_pages = (total_count + filters.page_size - 1) // filters.page_size
+
     return {
         "items": result,
         "total": total_count,
         "page": filters.page,
         "page_size": filters.page_size,
-        "pages": (total_count + filters.page_size - 1) // filters.page_size,
+        "pages": total_pages,
         "columns": columns,
+        "organization_id": organization_id,
     }
+
+
+@router.post(
+    "/advanced-search",
+    response_model=EmployeeAdvancedSearchResponse,
+    dependencies=[Depends(verify_token)],
+)
+def advanced_search_employees(
+    *,
+    db: Session = Depends(deps.get_db),
+    filters: EmployeeSearchFilters,
+    token_data: Dict[str, Any] = Depends(verify_token),
+    search_service: AdvancedSearchService = Depends(get_advanced_search_service),
+) -> Any:
+    """
+    Advanced employee search with full-text search, fuzzy matching, and relevance scoring
+
+    Features:
+    - Full-text search across multiple fields
+    - Fuzzy matching for names
+    - Relevance scoring
+    - Advanced filters (email domain, phone prefix, date ranges)
+    - Sorting and ranking
+    """
+
+    # Extract organization_id from JWT token
+    organization_id = token_data.get("organization_id", "default")
+
+    # Validate columns if specified
+    if filters.columns:
+        valid_columns = {
+            "id",
+            "name",
+            "email",
+            "phone",
+            "status",
+            "department",
+            "position",
+            "location",
+            "created_at",
+            "updated_at",
+            "relevance_score",
+        }
+        invalid_columns = [col for col in filters.columns if col not in valid_columns]
+        if invalid_columns:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid columns: {', '.join(invalid_columns)}",
+            )
+
+    # Perform advanced search
+    search_results, total_count, search_metadata = search_service.search_employees(
+        db=db, filters=filters, organization_id=organization_id
+    )
+
+    # Calculate pagination info
+    total_pages = (total_count + filters.page_size - 1) // filters.page_size
+
+    # Set default columns if not specified
+    columns = filters.columns or [
+        "id",
+        "name",
+        "email",
+        "department",
+        "position",
+        "status",
+    ]
+    if filters.include_relevance_score and "relevance_score" not in columns:
+        columns.append("relevance_score")
+
+    return EmployeeAdvancedSearchResponse(
+        items=search_results,
+        total=total_count,
+        page=filters.page,
+        page_size=filters.page_size,
+        pages=total_pages,
+        search_metadata=search_metadata,
+        columns=columns,
+        organization_id=organization_id,
+    )
+
+
+@router.get(
+    "/search-suggestions",
+    response_model=SearchSuggestionsResponse,
+    dependencies=[Depends(verify_token)],
+)
+def get_search_suggestions(
+    *,
+    db: Session = Depends(deps.get_db),
+    q: str = Query(..., description="Search term for suggestions"),
+    limit: int = Query(10, description="Maximum number of suggestions"),
+    token_data: Dict[str, Any] = Depends(verify_token),
+    search_service: AdvancedSearchService = Depends(get_advanced_search_service),
+) -> Any:
+    """
+    Get search suggestions based on partial search term
+
+    Returns suggestions for:
+    - Employee names
+    - Department names
+    - Position names
+    - Location names
+    """
+
+    organization_id = token_data.get("organization_id", "default")
+
+    if len(q.strip()) < 2:
+        raise HTTPException(
+            status_code=400, detail="Search term must be at least 2 characters long"
+        )
+
+    suggestions = search_service.get_search_suggestions(
+        db=db, search_term=q, organization_id=organization_id, limit=limit
+    )
+
+    return SearchSuggestionsResponse(suggestions=suggestions, search_term=q)

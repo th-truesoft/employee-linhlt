@@ -1,2 +1,2 @@
-from app.db.session import Base
-from app.models.employee import Employee, Department, Position, Location
+from .base import Base
+from .employee import Employee, Department, Position, Location

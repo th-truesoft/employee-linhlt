@@ -1,4 +1,14 @@
-from typing import Generator, Optional
+from typing import Generator, Optional, Dict, Any
+from datetime import datetime, timedelta
+
+# Try to import JWT, fallback if not available
+try:
+    import jwt
+
+    JWT_AVAILABLE = True
+except ImportError:
+    JWT_AVAILABLE = False
+    jwt = None
 
 from fastapi import Depends, HTTPException, status, Header
 from sqlalchemy.orm import Session
@@ -7,6 +17,50 @@ from dependency_injector.wiring import inject, Provide
 from app.core.config import settings
 from app.core.containers import Container
 from app.db.session import SessionLocal
+
+# Manual JWT decoder when PyJWT not available
+import json
+import base64
+import hmac
+import hashlib
+import time
+
+
+def manual_jwt_decode(token, secret_key):
+    """Manual JWT decoder without PyJWT dependency"""
+    try:
+        # Split token into parts
+        parts = token.split(".")
+        if len(parts) != 3:
+            raise ValueError("Invalid JWT format")
+
+        header_b64, payload_b64, signature_b64 = parts
+
+        # Decode payload (add padding if needed)
+        payload_b64_padded = payload_b64 + "=" * (4 - len(payload_b64) % 4)
+        payload_bytes = base64.urlsafe_b64decode(payload_b64_padded)
+        payload = json.loads(payload_bytes.decode("utf-8"))
+
+        # Verify signature (use original parts, not padded)
+        message = f"{header_b64}.{payload_b64}"
+        expected_sig = hmac.new(
+            secret_key.encode("utf-8"), message.encode("utf-8"), hashlib.sha256
+        ).digest()
+        expected_sig_b64 = (
+            base64.urlsafe_b64encode(expected_sig).decode("utf-8").rstrip("=")
+        )
+
+        if signature_b64 != expected_sig_b64:
+            raise ValueError("Invalid signature")
+
+        # Check expiration
+        if "exp" in payload and payload["exp"] < time.time():
+            raise ValueError("Token expired")
+
+        return payload
+
+    except Exception as e:
+        raise ValueError(f"JWT decode error: {str(e)}")
 
 
 def get_db() -> Generator:
@@ -17,9 +71,31 @@ def get_db() -> Generator:
         db.close()
 
 
-def validate_token(authorization: Optional[str] = Header(None)) -> bool:
+def create_access_token(
+    data: Dict[str, Any], expires_delta: Optional[timedelta] = None
+) -> str:
+    """Create JWT token with organization_id claim"""
+    if not JWT_AVAILABLE:
+        # Return simple token format if JWT not available
+        return f"simple-token-{data.get('organization_id', 'default')}"
+
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(
+            minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES
+        )
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm="HS256")
+    return encoded_jwt
+
+
+def validate_token(authorization: Optional[str] = Header(None)) -> Dict[str, Any]:
     """
-    Simple token validation function that checks if the provided token matches the default API token
+    Enhanced token validation with multi-tenant support.
+    Supports both JWT tokens and simple token for backward compatibility.
+    Returns token payload with organization_id.
     """
     if not authorization:
         raise HTTPException(
@@ -27,7 +103,7 @@ def validate_token(authorization: Optional[str] = Header(None)) -> bool:
             detail="Authorization header is missing",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
+
     try:
         scheme, token = authorization.split()
         if scheme.lower() != "bearer":
@@ -36,13 +112,42 @@ def validate_token(authorization: Optional[str] = Header(None)) -> bool:
                 detail="Invalid authentication scheme",
                 headers={"WWW-Authenticate": "Bearer"},
             )
-        if token != settings.DEFAULT_API_TOKEN:
+
+        # Try JWT token first
+        try:
+            if JWT_AVAILABLE:
+                # Use PyJWT if available
+                payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
+            else:
+                # Use manual decoder as fallback
+                payload = manual_jwt_decode(token, settings.SECRET_KEY)
+
+            if "organization_id" not in payload:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Token missing organization_id claim",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+            return payload
+
+        except (ValueError, Exception):
+            # Fall through to simple token validation if JWT decoding fails
+            pass
+
+        # Simple token validation (backward compatibility and JWT fallback)
+        if token == settings.DEFAULT_API_TOKEN:
+            return {"organization_id": "default", "sub": "api_user"}
+        elif token.startswith("simple-token-"):
+            # Handle tokens generated by create_access_token when JWT not available
+            org_id = token.replace("simple-token-", "")
+            return {"organization_id": org_id, "sub": "api_user"}
+        else:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid token",
                 headers={"WWW-Authenticate": "Bearer"},
             )
-        return True
+
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -51,30 +156,34 @@ def validate_token(authorization: Optional[str] = Header(None)) -> bool:
         )
 
 
+def get_current_organization(
+    token_data: Dict[str, Any] = Depends(validate_token),
+) -> str:
+    """Extract organization_id from token"""
+    return token_data.get("organization_id", "default")
+
+
+def get_current_user_id(token_data: Dict[str, Any] = Depends(validate_token)) -> str:
+    """Extract user_id from token"""
+    return token_data.get("sub", "api_user")
+
+
 # Dependency injection functions using container
 @inject
-def get_employee_service(
-    service = Provide[Container.employee_service]
-):
+def get_employee_service(service=Provide[Container.employee_service]):
     return service
 
 
 @inject
-def get_department_service(
-    service = Provide[Container.department_service]
-):
+def get_department_service(service=Provide[Container.department_service]):
     return service
 
 
 @inject
-def get_position_service(
-    service = Provide[Container.position_service]
-):
+def get_position_service(service=Provide[Container.position_service]):
     return service
 
 
 @inject
-def get_location_service(
-    service = Provide[Container.location_service]
-):
+def get_location_service(service=Provide[Container.location_service]):
     return service

@@ -1,0 +1,38 @@
+{
+  "default": {
+    "columns": [
+      "name",
+      "email",
+      "phone",
+      "status",
+      "department",
+      "position",
+      "location"
+    ]
+  },
+  "org1": {
+    "columns": [
+      "name",
+      "email",
+      "department",
+      "position"
+    ]
+  },
+  "org2": {
+    "columns": [
+      "name",
+      "status",
+      "department",
+      "location"
+    ]
+  },
+  "org3": {
+    "columns": [
+      "name",
+      "phone",
+      "department",
+      "position",
+      "location"
+    ]
+  }
+}
